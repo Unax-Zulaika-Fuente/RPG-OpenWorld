@@ -27,6 +27,15 @@ public class PlayerMovement : MonoBehaviour
     [Tooltip("Barra de estamina (UI Image con modo Fill)")]
     public Image staminaBar;                        // Asigna el componente Image de la barra de estamina
 
+    [Header("Vida")]
+    public float maxHealth = 100f;
+    [Tooltip("Barra de vida (UI Image con modo Fill)")]
+    public Image healthBar;                         // Asigna el componente Image de la barra de vida
+    [Tooltip("Umbral de velocidad para sufrir daño de caída")]
+    public float fallDamageThreshold = 10f;         // Velocidad mínima (negativa) para que se aplique daño
+    [Tooltip("Multiplicador para calcular el daño de caída")]
+    public float fallDamageMultiplier = 2f;         // Cada punto por debajo del umbral se multiplica para calcular el daño
+
     public CharacterController controller;
 
     private float verticalVelocity = 0f;
@@ -43,6 +52,11 @@ public class PlayerMovement : MonoBehaviour
     // Estamina interna
     private float currentStamina;
 
+    // Variables para la vida y caída
+    private float currentHealth;
+    private float maxFallVelocity = 0f;    // Registra la mayor velocidad negativa durante la caída
+    private bool wasGrounded = true;       // Estado del suelo del frame anterior
+
     void Start()
     {
         if (controller == null)
@@ -55,17 +69,22 @@ public class PlayerMovement : MonoBehaviour
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
 
-        // Inicializar estamina
+        // Inicializar estamina y vida
         currentStamina = maxStamina;
         ActualizarBarraEstamina();
+
+        currentHealth = maxHealth;
+        ActualizarBarraVida();
     }
 
     void Update()
     {
+        // Si el jugador está muerto, no hacer nada
+        if (currentHealth <= 0) return;
+
         // --- Actualizamos el estado de doble toque ---
         if (waitingForSecondShiftTap)
         {
-            // Si se supera el umbral sin recibir el segundo toque, cancelamos la espera
             if (Time.time - firstShiftTapTime > doubleTapThreshold)
             {
                 waitingForSecondShiftTap = false;
@@ -136,10 +155,8 @@ public class PlayerMovement : MonoBehaviour
         // -------------------------
         // DETECCIÓN DE SHIFT (DASH vs SPRINT)
         // -------------------------
-        // Si se presiona Shift en este frame:
         if (Keyboard.current != null && Keyboard.current.shiftKey.wasPressedThisFrame && controller.isGrounded)
         {
-            // Si no se estaba esperando un segundo toque, iniciamos la espera
             if (!waitingForSecondShiftTap)
             {
                 waitingForSecondShiftTap = true;
@@ -147,7 +164,6 @@ public class PlayerMovement : MonoBehaviour
             }
             else
             {
-                // Si ya se estaba esperando y la pulsación ocurre dentro del umbral, se activa el dash
                 if (Time.time - firstShiftTapTime <= doubleTapThreshold)
                 {
                     if (currentStamina >= dashStaminaCost)
@@ -168,7 +184,6 @@ public class PlayerMovement : MonoBehaviour
         float currentSpeed = speed;
         if (!isDashing)
         {
-            // Si Shift está presionado y no se está esperando un doble toque (o la espera ya se canceló), se aplica sprint
             if (Keyboard.current != null && Keyboard.current.shiftKey.isPressed)
             {
                 float staminaCost = sprintStaminaCostPerSecond * Time.deltaTime;
@@ -192,7 +207,6 @@ public class PlayerMovement : MonoBehaviour
         }
         else
         {
-            // Durante el dash, se ignora el sprint y el movimiento normal
             move = dashDirection * dashSpeed;
             dashTimer -= Time.deltaTime;
             if (dashTimer <= 0)
@@ -204,7 +218,6 @@ public class PlayerMovement : MonoBehaviour
         // -------------------------
         // RECUPERACIÓN DE ESTAMINA
         // -------------------------
-        // Si no se está sprintando o dashando, se recupera la estamina
         if (!(Keyboard.current != null && Keyboard.current.shiftKey.isPressed && !isDashing))
         {
             currentStamina += staminaRecoveryRate * Time.deltaTime;
@@ -221,13 +234,79 @@ public class PlayerMovement : MonoBehaviour
         // MOVER AL PERSONAJE
         // -------------------------
         controller.Move(move * Time.deltaTime);
+
+        // -------------------------
+        // GESTIÓN DEL DAÑO DE CAÍDA
+        // -------------------------
+        if (!controller.isGrounded)
+        {
+            maxFallVelocity = Mathf.Min(maxFallVelocity, verticalVelocity);
+        }
+        else
+        {
+            if (!wasGrounded)
+            {
+                if (maxFallVelocity < -fallDamageThreshold)
+                {
+                    // Daño de altura basado en velocidad
+                    //float damage = Mathf.Pow(Mathf.Abs(maxFallVelocity) - fallDamageThreshold, 2) * fallDamageMultiplier;
+                    //currentHealth -= damage;
+
+                    float height = Mathf.Pow(Mathf.Abs(maxFallVelocity), 2) / (2 * Mathf.Abs(gravity));
+                    float damage = Mathf.Pow(height, 1.5f) * fallDamageMultiplier;
+                    currentHealth -= damage;
+                    currentHealth = Mathf.Clamp(currentHealth, 0, maxHealth);
+                    ActualizarBarraVida();
+
+                    // Llamar a Die() si la vida llega a 0
+                    if (currentHealth <= 0)
+                    {
+                        Die();
+                    }
+                }
+                maxFallVelocity = 0f;
+            }
+        }
+        wasGrounded = controller.isGrounded;
     }
+
+    // -------------------------
+    // FUNCIÓN DE MUERTE
+    // -------------------------
+    void Die()
+    {
+        Debug.Log("El jugador ha muerto");
+
+        // Desactivar control del jugador
+        this.enabled = false;
+
+        // Opcional: Activar pantalla de "Game Over"
+        //GameManager.Instance.ShowGameOverScreen();
+
+        // Opcional: Reiniciar la escena tras 2 segundos
+        Invoke("ReiniciarEscena", 2f);
+    }
+
+    // Reinicia la escena (opcional)
+    void ReiniciarEscena()
+    {
+        UnityEngine.SceneManagement.SceneManager.LoadScene(UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
+    }
+
 
     void ActualizarBarraEstamina()
     {
         if (staminaBar != null)
         {
             staminaBar.fillAmount = currentStamina / maxStamina;
+        }
+    }
+
+    void ActualizarBarraVida()
+    {
+        if (healthBar != null)
+        {
+            healthBar.fillAmount = currentHealth / maxHealth;
         }
     }
 }
