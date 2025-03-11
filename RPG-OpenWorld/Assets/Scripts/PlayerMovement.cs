@@ -35,6 +35,15 @@ public class PlayerMovement : MonoBehaviour
     public float fallDamageThreshold = 10f;         // Velocidad mínima (negativa) para que se aplique daño
     [Tooltip("Multiplicador para calcular el daño de caída")]
     public float fallDamageMultiplier = 2f;         // Cada punto por debajo del umbral se multiplica para calcular el daño
+    [Tooltip("Altura mínima para que se aplique daño de caída")]
+    public float minFallHeight = 2f;
+
+    [Header("Materiales")]
+    [Tooltip("Material para cuando el jugador está vivo")]
+    public Material materialVivo;
+    [Tooltip("Material para cuando el jugador está muerto")]
+    public Material materialMuerto;
+
 
     public CharacterController controller;
 
@@ -75,6 +84,13 @@ public class PlayerMovement : MonoBehaviour
 
         currentHealth = maxHealth;
         ActualizarBarraVida();
+
+        // Asignar el material "Vivo" al inicio
+        MeshRenderer renderer = GetComponent<MeshRenderer>();
+        if (renderer != null && materialVivo != null)
+        {
+            renderer.material = materialVivo;
+        }
     }
 
     void Update()
@@ -238,30 +254,45 @@ public class PlayerMovement : MonoBehaviour
         // -------------------------
         // GESTIÓN DEL DAÑO DE CAÍDA
         // -------------------------
+        // GESTIÓN DEL DAÑO DE CAÍDA
         if (!controller.isGrounded)
         {
+            // Mientras se esté cayendo, registramos la velocidad más negativa alcanzada.
             maxFallVelocity = Mathf.Min(maxFallVelocity, verticalVelocity);
         }
         else
         {
+            // Si acaba de aterrizar (cambio de no estar en suelo a estar en suelo)
             if (!wasGrounded)
             {
                 if (maxFallVelocity < -fallDamageThreshold)
                 {
                     // Daño de altura basado en velocidad
                     //float damage = Mathf.Pow(Mathf.Abs(maxFallVelocity) - fallDamageThreshold, 2) * fallDamageMultiplier;
-                    //currentHealth -= damage;
 
+                    // Calcular la altura total de la caída (según la velocidad máxima alcanzada)
                     float height = Mathf.Pow(Mathf.Abs(maxFallVelocity), 2) / (2 * Mathf.Abs(gravity));
-                    float damage = Mathf.Pow(height, 1.5f) * fallDamageMultiplier;
-                    currentHealth -= damage;
-                    currentHealth = Mathf.Clamp(currentHealth, 0, maxHealth);
-                    ActualizarBarraVida();
 
-                    // Llamar a Die() si la vida llega a 0
-                    if (currentHealth <= 0)
+                    // Solo aplicar daño si la altura total supera la altura mínima
+                    if (height >= minFallHeight)
                     {
-                        Die();
+                        // Calcular la altura "efectiva" de la caída (por encima del mínimo)
+                        float effectiveHeight = height - minFallHeight;
+                        // Si effectiveHeight es 0 o negativo, no se aplica daño.
+                        if (effectiveHeight > 0)
+                        {
+                            // Calcular el daño de manera exponencial basado en la altura efectiva.
+                            float damage = Mathf.Pow(effectiveHeight, 1.5f) * fallDamageMultiplier;
+                            currentHealth -= damage;
+                            currentHealth = Mathf.Clamp(currentHealth, 0, maxHealth);
+                            ActualizarBarraVida();
+
+                            // Llamar a Die() si la vida llega a 0
+                            if (currentHealth <= 0)
+                            {
+                                Die();
+                            }
+                        }
                     }
                 }
                 maxFallVelocity = 0f;
@@ -276,6 +307,13 @@ public class PlayerMovement : MonoBehaviour
     void Die()
     {
         Debug.Log("El jugador ha muerto");
+
+        // Cambiar el material del PlayerCapsule a "Muerto"
+        MeshRenderer renderer = GetComponent<MeshRenderer>();
+        if (renderer != null && materialMuerto != null)
+        {
+            renderer.material = materialMuerto;
+        }
 
         // Desactivar control del jugador
         this.enabled = false;
